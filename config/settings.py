@@ -57,8 +57,9 @@ class Settings(BaseSettings):
         return (
             f"postgresql+asyncpg://"
             f"{self.db_user}:{self.db_password}"
-            f"@{self.db_host}:{self.db_port}"
+            f"@{self.db_host}"
             f"/{self.db_name}"
+            f"?sslmode=require&channel_binding=require"
         )
 
     @property
