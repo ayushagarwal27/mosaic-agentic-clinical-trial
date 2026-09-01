@@ -22,4 +22,4 @@ def setup_logging(name:str) -> logging.Logger:
     logger.addHandler(handler)
     logger.propagate = False
 
-
+    return logger

@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
     # LLM
     openai_api_key:str = Field(...)
-    openai_embedding_model:str = Field(default="text-embedding-3-large")
+    openai_embedding_model:str = Field(default="text-embedding-3-small")
     openai_chat_model:str = Field(default="gpt-4o-mini")
 
     # Tracing
@@ -23,8 +23,8 @@ class Settings(BaseSettings):
     # Deployment
     gcp_project_id:str = Field(...)
     gcp_region:str = Field(default='us-central1')
-    gcp_bucket_name:str = Field(...)
-
+    gcs_bucket_name:str = Field(...)
+    
     # Database
     db_host:str = Field(...)
     db_port:int = Field(default=5432, description="PostgreSQL port")
@@ -57,9 +57,8 @@ class Settings(BaseSettings):
         return (
             f"postgresql+asyncpg://"
             f"{self.db_user}:{self.db_password}"
-            f"@{self.db_host}"
+            f"@{self.db_host}:{self.db_port}"
             f"/{self.db_name}"
-            f"?sslmode=require&channel_binding=require"
         )
 
     @property
