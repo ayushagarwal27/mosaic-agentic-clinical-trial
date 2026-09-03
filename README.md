@@ -3,5 +3,5 @@
 - LangGraph
 - LangMem
 - LangSmith
-- PostgresSQL
-- GCP
+- PostgresSQL, Vector Store
+- GCP, GCS
