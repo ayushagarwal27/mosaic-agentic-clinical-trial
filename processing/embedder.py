@@ -126,6 +126,28 @@ class Embedder:
 
         return all_embedded
 
+    async def embed_text(self, text: str) -> list[float]:
+        """
+        Converts one raw string into a single 1536-number embedding.
+
+        Used for search queries — unlike embed_chunks(), there is
+        no TextChunk to wrap and no batching to do, just one string
+        in and one embedding out.
+
+        Args:
+            text: The raw query text to embed.
+
+        Returns:
+            A list of 1536 floats — pass this straight into
+            VectorStore.search(query_embedding=...).
+        """
+
+        response = await self._client.embeddings.create(
+            model=self._model,
+            input=[text],
+        )
+        return response.data[0].embedding
+
     def _create_batches(
         self,
         chunks: list[TextChunk],

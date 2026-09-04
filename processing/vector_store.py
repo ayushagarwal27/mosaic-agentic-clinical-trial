@@ -369,3 +369,52 @@ class VectorStore:
         exists = count > 0
 
         return exists
+
+    async def get_chunks_for_study(
+        self,
+        nct_id: str,
+    ) -> list[dict[str, Any]]:
+        """
+        Retrieves every chunk belonging to one specific study.
+
+        Unlike search(), this does NOT rank by similarity — there is
+        no query to compare against. It simply returns all chunks for
+        the given nct_id, ordered the way they appeared in the source
+        document, so an agent can read the study's full content in order.
+
+        Args:
+            nct_id: The study to retrieve chunks for.
+
+        Returns:
+            List of dictionaries, each containing:
+            - nct_id:      Always equal to the requested nct_id
+            - chunk_text:  The actual text content
+            - chunk_index: Position in the original document
+            - source:      "study" or "paper"
+            Empty list if the study has no chunks saved yet.
+        """
+
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT
+                    nct_id,
+                    chunk_text,
+                    chunk_index,
+                    source
+                FROM chunks
+                WHERE nct_id = $1
+                ORDER BY chunk_index ASC
+                """,
+                nct_id,
+            )
+
+        results = [dict(row) for row in rows]
+
+        logger.info(
+            f"get_chunks_for_study complete | "
+            f"nct_id={nct_id} | "
+            f"chunks_found={len(results)}"
+        )
+
+        return results
