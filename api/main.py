@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI):
     Manages application startup and shutdown.
 
     STARTUP (before yield):
-    - Initialises default agent procedures in Cloud SQL
+    - Initialises default agent procedures in Postgres
     - Logs that the API is ready
 
     SHUTDOWN (after yield):
@@ -136,7 +136,9 @@ async def health_check():
         pool = await asyncpg.create_pool(
             host=settings.db_host, port=settings.db_port,
             database=settings.db_name, user=settings.db_user,
-            password=settings.db_password, min_size=1, max_size=2,
+            password=settings.db_password,
+            ssl="require" if settings.db_ssl else None,
+            min_size=1, max_size=2,
         )
         async with pool.acquire() as conn:
             signals_count  = await conn.fetchval("SELECT COUNT(*) FROM signals") or 0

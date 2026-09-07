@@ -18,7 +18,7 @@ class EmbeddedChunk:
     """
     A TextChunk that has been enriched with its vector embedding.
 
-    This is what gets saved to the Cloud SQL chunks table.
+    This is what gets saved to the Postgres chunks table.
     Every field from TextChunk is carried over, plus one new field:
     embedding — the list of 1536 numbers representing this chunk's meaning.
 

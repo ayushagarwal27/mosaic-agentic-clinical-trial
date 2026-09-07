@@ -20,17 +20,19 @@ class Settings(BaseSettings):
     langsmith_project:str = Field(default='clinical_trial_intelligence', description='LangSmith project name')
     langsmith_tracing_v2:bool = Field(default=True, description="Enable langsmith tracing for all agent runs")
 
-    # Deployment
-    gcp_project_id:str = Field(...)
-    gcp_region:str = Field(default='us-central1')
-    gcs_bucket_name:str = Field(...)
-    
+    # Object storage (Backblaze B2)
+    b2_key_id:str = Field(...)
+    b2_application_key:str = Field(...)
+    b2_bucket_name:str = Field(...)
+    b2_endpoint_url:str = Field(...)
+
     # Database
     db_host:str = Field(...)
     db_port:int = Field(default=5432, description="PostgreSQL port")
     db_name:str = Field(default="clinical_trial_db")
     db_user:str = Field(...)
     db_password:str = Field(...)
+    db_ssl:bool = Field(default=False, description="Require SSL for Postgres connections (needed for Neon)")
 
     # DataSource
     clinical_trials_base_url:str = Field(default="https://clinicaltrials.gov/api/v2")

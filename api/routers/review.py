@@ -40,7 +40,9 @@ async def get_review_queue(
         pool = await asyncpg.create_pool(
             host=settings.db_host, port=settings.db_port,
             database=settings.db_name, user=settings.db_user,
-            password=settings.db_password, min_size=1, max_size=2,
+            password=settings.db_password,
+            ssl="require" if settings.db_ssl else None,
+            min_size=1, max_size=2,
         )
 
         async with pool.acquire() as conn:

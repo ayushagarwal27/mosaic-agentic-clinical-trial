@@ -67,6 +67,7 @@ class SemanticStore:
             database=settings.db_name,
             user=settings.db_user,
             password=settings.db_password,
+            ssl="require" if settings.db_ssl else None,
             min_size=1,
             max_size=5,
         )

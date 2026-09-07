@@ -3,7 +3,7 @@ import asyncio
 from ingestion.clinical_trials_client import ClinicalTrialsClient
 from ingestion.pubmed_client import PubMedClient
 from ingestion.document_parser import DocumentParser
-from ingestion.gcs_store import GCSStore
+from ingestion.backblaze_store import B2Store
 
 from config.logging_config import setup_logging
 
@@ -26,7 +26,7 @@ async def run_ingestion():
     Runs the complete ingestion pipeline from start to finish.
 
     Downloads studies from ClinicalTrials.gov for every condition
-    in SEARCH_CONDITIONS, saves them to GCS (both raw and cleaned),
+    in SEARCH_CONDITIONS, saves them to B2 (both raw and cleaned),
     then does the same for any related PubMed papers.
     """
 
@@ -37,7 +37,7 @@ async def run_ingestion():
     logger.info("=" * 60)
 
     parser = DocumentParser()
-    store  = GCSStore()
+    store  = B2Store()
 
     total_studies = 0
     total_papers  = 0

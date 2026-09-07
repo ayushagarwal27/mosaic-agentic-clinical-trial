@@ -1,6 +1,6 @@
 import asyncio
 from ingestion.document_parser import ParsedStudy
-from ingestion.gcs_store import GCSStore
+from ingestion.backblaze_store import B2Store
 from processing.chunker import Chunker
 from processing.embedder import Embedder
 from processing.vector_store import VectorStore
@@ -13,25 +13,25 @@ async def run_processing():
     """
     Runs the complete processing pipeline from start to finish.
 
-    Reads cleaned studies from GCS, chunks them, embeds them via
-    OpenAI, and stores everything in Cloud SQL for agent search.
+    Reads cleaned studies from B2, chunks them, embeds them via
+    OpenAI, and stores everything in Postgres for agent search.
     """
-    gcs_store = GCSStore()
+    b2_store = B2Store()
     chunker = Chunker()
     embedder = Embedder()
-    logger.info("Loading parsed studies from GCS...")
-    nct_ids = await gcs_store.list_processed_studies()
-    logger.info(f"Found {len(nct_ids)} studies in GCS")
+    logger.info("Loading parsed studies from B2...")
+    nct_ids = await b2_store.list_processed_studies()
+    logger.info(f"Found {len(nct_ids)} studies in B2")
 
     studies : list[ParsedStudy] = []
     for nct_id in nct_ids:
-        study = await gcs_store.load_parsed_study(nct_id)
+        study = await b2_store.load_parsed_study(nct_id)
         if study:
             studies.append(study)
         logger.info(f"Loaded {len(studies)} studies successfully")
 
     async with VectorStore() as vector_store:
-        logger.info("Saving study metadata to Cloud SQL...")
+        logger.info("Saving study metadata to Postgres...")
 
         studies_saved = 0
         for study in studies:
@@ -50,14 +50,14 @@ async def run_processing():
                     "completion_date":    study.completion_date,
                     "results_posted":     study.results_posted,
                     "enrollment":         study.enrollment,
-                    "gcs_path":           f"processed/studies/{study.nct_id}.json",
+                    "storage_path":       f"processed/studies/{study.nct_id}.json",
                 }
             )
             if success:
                 studies_saved += 1
 
         logger.info(
-            f"Studies saved to Cloud SQL | "
+            f"Studies saved to Postgres | "
             f"saved={studies_saved} | "
             f"total={len(studies)}"
         )
@@ -74,7 +74,7 @@ async def run_processing():
 
         logger.info(f"Total chunks embedded: {len(embedded_chunks)}")
 
-        logger.info("Saving embedded chunks to Cloud SQL...")
+        logger.info("Saving embedded chunks to Postgres...")
 
         chunks_stored = await vector_store.save_embedded_chunks(embedded_chunks)
 

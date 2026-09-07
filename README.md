@@ -3,5 +3,5 @@
 - LangGraph
 - LangMem
 - LangSmith
-- PostgresSQL, Vector Store
-- GCP, GCS
+- PostgresSQL, Vector Store (Neon)
+- Backblaze B2

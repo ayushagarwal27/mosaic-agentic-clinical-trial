@@ -17,9 +17,8 @@ langmem
 # LLM
 openai
 
-# GCP
-google-cloud-storage
-google-cloud-secret-manager
+# Object storage (Backblaze B2, S3-compatible)
+boto3
 
 # Async
 asyncpg

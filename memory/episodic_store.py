@@ -72,7 +72,7 @@ class EpisodicStore:
         When MOSAIC starts up, it imports many classes including
         EpisodicStore. If we opened the database connection in
         __init__, every import would immediately try to connect
-        to Cloud SQL — even if that class is never actually used
+        to Postgres — even if that class is never actually used
         in that run. Lazy initialisation avoids wasted connections.
 
         This method is called at the START of every public method
@@ -89,6 +89,7 @@ class EpisodicStore:
             database=settings.db_name,
             user=settings.db_user,
             password=settings.db_password,
+            ssl="require" if settings.db_ssl else None,
             min_size=1,
             max_size=5,
             init=self._init_connection,
@@ -179,7 +180,7 @@ class EpisodicStore:
         outcome: str | None = None,
     ) -> str:
         """
-        Saves one agent reasoning session as an episode in Cloud SQL.
+        Saves one agent reasoning session as an episode in Postgres.
 
         WHAT HAPPENS INSIDE THIS METHOD:
         1. Makes sure the database connection is open
@@ -426,7 +427,7 @@ class EpisodicStore:
         Closes the connection pool and releases all connections.
 
         Call this when the application shuts down cleanly.
-        Without closing, connections may stay open on Cloud SQL
+        Without closing, connections may stay open on Postgres
         unnecessarily — wasting resources and potentially hitting
         connection limits.
 

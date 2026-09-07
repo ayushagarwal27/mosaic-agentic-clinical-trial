@@ -16,7 +16,7 @@ TOP_K_DEFAULT = 5
 
 class VectorStore:
     """
-    Saves EmbeddedChunks to Cloud SQL and enables semantic search
+    Saves EmbeddedChunks to Postgres and enables semantic search
     over them using pgvector's cosine similarity operator.
 
     LIFECYCLE — always follow this order:
@@ -63,11 +63,11 @@ class VectorStore:
         pgvector codec so Python can read and write VECTOR columns.
 
         MUST be called before any other method.
-        This is where we actually connect to Cloud SQL.
+        This is where we actually connect to Postgres.
         """
 
         logger.info(
-            f"Connecting to Cloud SQL | "
+            f"Connecting to Postgres | "
             f"host={settings.db_host} | "
             f"database={settings.db_name}"
         )
@@ -78,6 +78,7 @@ class VectorStore:
             database=settings.db_name,
             user=settings.db_user,
             password=settings.db_password,
+            ssl="require" if settings.db_ssl else None,
             min_size=POOL_MIN_SIZE,
             max_size=POOL_MAX_SIZE,
             init=self._init_connection,
@@ -117,7 +118,7 @@ class VectorStore:
         """
         Gracefully closes all database connections in the pool.
         Always call this when you are done with the VectorStore.
-        Leaving connections open wastes Cloud SQL resources.
+        Leaving connections open wastes database resources.
         """
 
         if self._pool:
@@ -206,7 +207,7 @@ class VectorStore:
                     (nct_id, title, sponsor, phase, status,
                      conditions, interventions, primary_outcome,
                      secondary_outcomes, start_date, completion_date,
-                     results_posted, enrollment, gcs_path)
+                     results_posted, enrollment, storage_path)
                 VALUES
                     ($1, $2, $3, $4, $5,
                      $6, $7, $8,
@@ -225,7 +226,7 @@ class VectorStore:
                     completion_date  = EXCLUDED.completion_date,
                     results_posted   = EXCLUDED.results_posted,
                     enrollment       = EXCLUDED.enrollment,
-                    gcs_path         = EXCLUDED.gcs_path
+                    storage_path     = EXCLUDED.storage_path
                 """,
                 study_data.get("nct_id"),
                 study_data.get("title"),
@@ -240,7 +241,7 @@ class VectorStore:
                 study_data.get("completion_date"),
                 study_data.get("results_posted"),
                 study_data.get("enrollment"),
-                study_data.get("gcs_path"),
+                study_data.get("storage_path"),
             )
 
     async def search(
@@ -259,7 +260,7 @@ class VectorStore:
 
         This is the method every agent calls when it needs context.
         It is the bridge between a natural language question and
-        the relevant chunks stored in Cloud SQL.
+        the relevant chunks stored in Postgres.
 
         Args:
             query_embedding:  The search query as 1536 numbers.

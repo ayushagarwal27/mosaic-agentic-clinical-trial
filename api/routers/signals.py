@@ -19,7 +19,9 @@ async def _get_pool():
     return await asyncpg.create_pool(
         host=settings.db_host, port=settings.db_port,
         database=settings.db_name, user=settings.db_user,
-        password=settings.db_password, min_size=1, max_size=5,
+        password=settings.db_password,
+        ssl="require" if settings.db_ssl else None,
+        min_size=1, max_size=5,
     )
 
 
