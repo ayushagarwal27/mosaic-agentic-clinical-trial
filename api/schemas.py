@@ -89,7 +89,7 @@ class SignalResponse(BaseModel):
     """
 
     signal_id:   str
-    nct_id:      str
+    nct_id:      str | None = None
     agent:       str
     signal_type: str
     summary:     str
@@ -139,7 +139,12 @@ class ReviewQueueItem(BaseModel):
     signal_type: str
     summary:     str
     confidence:  float
-    nct_id:      str
+
+    nct_id:      str | None = None
+    # None for sponsor-level and cross-study signals, which are about a
+    # pattern rather than one trial. Stored as NULL so the foreign key to
+    # studies still holds.
+
     decision:    str
     # "pending" for all items in the queue — changes after review.
 

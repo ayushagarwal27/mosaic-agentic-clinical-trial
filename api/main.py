@@ -14,9 +14,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from api.routers import analysis, signals, review, memory
 from api.dependencies import get_hitl_gate, get_procedural_store
+from api.static import mount_frontend, frontend_is_built, INDEX_HTML
 from config.settings import settings
 from config.logging_config import setup_logging
 
@@ -166,12 +168,33 @@ async def health_check():
     }
 
 
-@app.get("/", tags=["System"])
-async def root():
-    """Root endpoint — confirms the API is running."""
+@app.get("/api/v1/info", tags=["System"])
+async def info():
+    """Machine-readable descriptor of this API."""
     return {
         "message": "MOSAIC Clinical Trial Intelligence API",
         "version": "0.1.0",
         "docs":    "/docs",
         "health":  "/api/v1/health",
     }
+
+
+@app.get("/", include_in_schema=False)
+async def root():
+    """
+    Serves the React console when it has been built, and falls back to
+    the JSON descriptor when it has not — so a fresh clone with no
+    `npm run build` still gets a useful answer here instead of a 404.
+    """
+
+    if frontend_is_built():
+        return FileResponse(INDEX_HTML)
+
+    return await info()
+
+
+# MUST BE LAST.
+# mount_frontend registers a catch-all GET /{full_path:path} route, and
+# Starlette matches routes in registration order — anything declared
+# after this line would be unreachable.
+mount_frontend(app)

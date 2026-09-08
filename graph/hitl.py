@@ -28,6 +28,14 @@ CONFIDENCE_THRESHOLDS = {
 }
 
 
+# Values an agent uses to mean "this finding is not about one study".
+# Compared upper-cased, so "n/a" and "N/A" both match.
+NO_STUDY_MARKERS = {
+    "N/A", "NA", "NONE", "NULL", "UNKNOWN",
+    "MULTIPLE", "VARIOUS", "ALL", "SEVERAL",
+}
+
+
 class HITLGate:
     """
     Routes signals to either direct save or human review queue
@@ -102,6 +110,50 @@ class HITLGate:
             )
             return {"action": "sent_to_review", "queue_id": queue_id}
 
+    async def _resolve_nct_id(self, conn, raw: Any) -> str | None:
+        """
+        Maps an agent's claimed nct_id onto a real study, or None.
+
+        WHY THIS EXISTS:
+        signals.nct_id carries a foreign key to studies.nct_id, so any
+        value that is not a study we actually hold raises
+        ForeignKeyViolationError on insert. Two things produce such values:
+
+        1. Deliberate ones. The track record agent reasons about a SPONSOR
+           across many trials, and its prompt tells it to answer "N/A".
+           Pattern finder signals are cross-study for the same reason.
+           These are valid signals that simply have no single study, which
+           in SQL is NULL — not the three-character string "N/A".
+
+        2. Hallucinated ones. Agents sometimes cite plausible-looking NCT
+           IDs that are not in our corpus. Those are logged and dropped to
+           NULL rather than taking down the run, since the summary and
+           evidence are still worth keeping for a human to read.
+
+        The column is already nullable and Postgres never checks a foreign
+        key on a NULL, so this needs no migration.
+        """
+
+        candidate = str(raw or "").strip()
+
+        if not candidate or candidate.upper() in NO_STUDY_MARKERS:
+            return None
+
+        # Returns the stored id on a match and None otherwise, so the FK
+        # can never be handed a value that is absent from studies.
+        resolved = await conn.fetchval(
+            "SELECT nct_id FROM studies WHERE nct_id = $1",
+            candidate,
+        )
+
+        if resolved is None:
+            logger.warning(
+                f"Signal cites unknown study | nct_id={candidate!r} | "
+                "not present in studies — storing signal with nct_id=NULL"
+            )
+
+        return resolved
+
     async def _save_signal(self, signal: dict[str, Any]) -> str:
         """Inserts a high-confidence signal into the signals table."""
 
@@ -109,6 +161,8 @@ class HITLGate:
         signal_id = str(uuid.uuid4())
 
         async with self.pool.acquire() as conn:
+            nct_id = await self._resolve_nct_id(conn, signal.get("nct_id"))
+
             await conn.execute(
                 """
                 INSERT INTO signals (
@@ -119,7 +173,7 @@ class HITLGate:
                 ON CONFLICT (signal_id) DO NOTHING
                 """,
                 signal_id,
-                signal.get("nct_id", ""),
+                nct_id,
                 signal.get("agent", ""),
                 signal.get("signal_type", ""),
                 signal.get("summary", ""),
@@ -142,6 +196,8 @@ class HITLGate:
         signal_id = str(uuid.uuid4())
 
         async with self.pool.acquire() as conn:
+            nct_id = await self._resolve_nct_id(conn, signal.get("nct_id"))
+
             # First save the signal itself
             await conn.execute(
                 """
@@ -152,7 +208,7 @@ class HITLGate:
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 """,
                 signal_id,
-                signal.get("nct_id", ""),
+                nct_id,
                 signal.get("agent", ""),
                 signal.get("signal_type", ""),
                 signal.get("summary", ""),

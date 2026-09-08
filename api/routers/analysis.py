@@ -88,19 +88,33 @@ async def run_analysis(
         signals          = result.get("signals", [])
         processed_signals = []
 
+        persistence_failures = 0
+
         for signal in signals:
-            hitl_result = await hitl_gate.process_signal(signal)
+            # Persist each signal independently. A single bad one used to
+            # propagate out of this loop and 500 the whole request, which
+            # threw away the brief and every other agent's findings — the
+            # expensive part of the run — over one unstorable row.
+            try:
+                hitl_result = await hitl_gate.process_signal(signal)
+                action      = hitl_result.get("action")
+
+            except Exception as e:
+                persistence_failures += 1
+                action = "persist_failed"
+                logger.error(
+                    f"Signal could not be persisted | "
+                    f"run_id={run_id} | "
+                    f"agent={signal.get('agent')} | "
+                    f"nct_id={signal.get('nct_id')!r} | "
+                    f"error={e}"
+                )
+
             processed_signals.append({
                 **signal,
                 # ** unpacks the signal dict into the new dict.
-                "hitl_action": hitl_result.get("action"),
+                "hitl_action": action,
             })
-
-            logger.info(
-                f"Signal saved directly | "
-                f"agent={signal.get('agent')} | "
-                f"confidence={signal.get('confidence', 0):.2f}"
-            )
 
         duration = round(time.time() - start_time, 2)
 
@@ -112,6 +126,7 @@ async def run_analysis(
             f"Analysis run complete | "
             f"run_id={run_id} | "
             f"signals={len(signals)} | "
+            f"persistence_failures={persistence_failures} | "
             f"duration={duration}s"
         )
 
