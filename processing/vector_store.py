@@ -35,6 +35,11 @@ class VectorStore:
         self._pool: asyncpg.Pool | None = None
 
     @property
+    def is_initialised(self) -> bool:
+        """True once init() has created the connection pool."""
+        return self._pool is not None
+
+    @property
     def pool(self) -> asyncpg.Pool:
         """
         Returns the active connection pool, raising a clear error

@@ -112,7 +112,6 @@ async def supervisor_compile(state: MosaicState) -> dict:
                 "for the specified task and study set."
             ),
             "run_complete":     True,
-            "agents_activated": agents_activated,
         }
 
     high_confidence_signals = [
@@ -179,12 +178,16 @@ async def supervisor_compile(state: MosaicState) -> dict:
         logger.error(f"LLM brief compilation failed | error={e}")
         final_brief = _fallback_brief(signals, agents_activated, task)
 
+    # NOTE: do NOT return "agents_activated" here.
+    # It is an append-only channel (see _merge_lists in graph/state.py) —
+    # the six specialists have already written all six names into it by
+    # the time this node runs. Returning the list we just READ would make
+    # the reducer append it a second time, doubling it to twelve entries.
     return {
         "final_brief":              final_brief,
         "run_complete":             True,
         "total_signals":            len(signals),
         "signals_requiring_review": len(review_signals),
-        "agents_activated":         agents_activated,
     }
 
 
