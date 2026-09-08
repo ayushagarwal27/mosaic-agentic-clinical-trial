@@ -1,5 +1,4 @@
 import json
-import asyncio
 from langchain_core.tools import tool
 from ingestion.pubmed_client import PubMedClient
 from ingestion.document_parser import DocumentParser
@@ -10,28 +9,8 @@ logger = setup_logging(__name__)
 _parser = DocumentParser()
 
 
-def _run_async(coroutine):
-    """
-    Runs an async coroutine synchronously inside a LangGraph tool.
-
-    WHY THIS IS NEEDED:
-    LangGraph tools are called synchronously by the framework.
-    PubMedClient uses async/await for non-blocking HTTP calls.
-    This function bridges those two worlds using asyncio.
-
-    Args:
-        coroutine: An unawaited async function call.
-
-    Returns:
-        The result of the async function, returned synchronously.
-    """
-
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(coroutine)
-
-
 @tool
-def fetch_papers_for_trial(
+async def fetch_papers_for_trial(
     nct_id: str,
     max_papers: int = 10,
 ) -> str:
@@ -74,17 +53,12 @@ def fetch_papers_for_trial(
         f"nct_id={nct_id} | max_papers={max_papers}"
     )
 
-    async def _fetch():
+    try:
         async with PubMedClient() as client:
-            papers = await client.fetch_papers_for_trial(
+            raw_papers = await client.fetch_papers_for_trial(
                 nct_id=nct_id,
                 max_results=max_papers,
             )
-
-            return papers
-
-    try:
-        raw_papers = _run_async(_fetch())
 
         if not raw_papers:
             return json.dumps({
@@ -135,7 +109,7 @@ def fetch_papers_for_trial(
 
 
 @tool
-def search_pubmed_by_query(
+async def search_pubmed_by_query(
     query: str,
     max_papers: int = 5,
 ) -> str:
@@ -172,25 +146,17 @@ def search_pubmed_by_query(
         f"query='{query[:60]}' | max_papers={max_papers}"
     )
 
-    async def _search():
+    try:
         async with PubMedClient() as client:
-
             paper_ids = await client._search_paper_ids(
                 nct_id=query,
                 max_results=max_papers,
             )
 
-            if not paper_ids:
-                return []
-
-            papers = await client._fetch_paper_details(
-                paper_ids=paper_ids
+            raw_papers = (
+                await client._fetch_paper_details(paper_ids=paper_ids)
+                if paper_ids else []
             )
-
-            return papers
-
-    try:
-        raw_papers = _run_async(_search())
 
         if not raw_papers:
             return json.dumps({
@@ -238,7 +204,7 @@ def search_pubmed_by_query(
 
 
 @tool
-def compare_filing_vs_papers(
+async def compare_filing_vs_papers(
     nct_id: str,
     filing_summary: str,
 ) -> str:
@@ -276,16 +242,12 @@ def compare_filing_vs_papers(
         f"Tool called: compare_filing_vs_papers | nct_id={nct_id}"
     )
 
-    async def _fetch():
+    try:
         async with PubMedClient() as client:
-            papers = await client.fetch_papers_for_trial(
+            raw_papers = await client.fetch_papers_for_trial(
                 nct_id=nct_id,
                 max_results=15,
             )
-            return papers
-
-    try:
-        raw_papers = _run_async(_fetch())
         parsed_papers = _parser.parse_papers(raw_papers=raw_papers or [])
 
         papers_list = []

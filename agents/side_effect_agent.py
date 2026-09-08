@@ -25,7 +25,7 @@
 import json
 import re
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 
 from graph.state import MosaicState, SignalOutput
 from memory.procedural_store import ProceduralStore
@@ -143,11 +143,20 @@ async def side_effect_node(state: MosaicState) -> dict:
         ]
 
         signals_found  = []
+        last_response  = None
         max_iterations = 10
 
         for iteration in range(max_iterations):
-            response = await _llm.ainvoke(messages)
-            messages.append(AIMessage(content=response.content or ""))
+            response      = await _llm.ainvoke(messages)
+            last_response = response
+
+            # Append the response ITSELF, not a content-only copy of it.
+            # response.content is usually "" while the model is calling tools,
+            # so rebuilding it as AIMessage(content=...) discarded the
+            # tool_calls entirely — the model never saw a record of what it
+            # had called, and by the final turn it could no longer summarise
+            # its own findings as signal JSON.
+            messages.append(response)
 
             if not response.tool_calls:
                 logger.info(f"{AGENT_NAME} | Analysis complete | iteration={iteration+1}")
@@ -156,9 +165,31 @@ async def side_effect_node(state: MosaicState) -> dict:
 
             for tool_call in response.tool_calls:
                 tool_result = await _execute_tool(tool_call, AGENT_TOOLS) # type: ignore
+
+                # Tool output must come back as a ToolMessage carrying the
+                # matching tool_call_id. An assistant message with tool_calls
+                # has to be answered once per id — a HumanMessage does not
+                # satisfy that, it just looks like the user talking.
                 messages.append(
-                    HumanMessage(content=f"Tool result for {tool_call['name']}:\n{tool_result}")
+                    ToolMessage(
+                        content=tool_result,
+                        tool_call_id=tool_call["id"],
+                    )
                 )
+        else:
+            # This 'else' belongs to the 'for' loop: Python runs it only when
+            # the loop ended WITHOUT hitting break — i.e. the agent was still
+            # calling tools when it ran out of iterations. signals_found used
+            # to stay empty here, so anything the agent had found was
+            # discarded silently, with nothing written to the log.
+            logger.warning(
+                f"{AGENT_NAME} | Hit max_iterations={max_iterations} while still "
+                "calling tools — parsing last response for signals anyway"
+            )
+            signals_found = _parse_signals(
+                last_response.content if last_response else "",  # type: ignore
+                AGENT_NAME,
+            )
 
         await _episodic.save_episode(
             agent_name=AGENT_NAME,
@@ -183,10 +214,25 @@ async def side_effect_node(state: MosaicState) -> dict:
 
 def _parse_signals(response_text: str, agent_name: str) -> list[SignalOutput]:
     signals = []
-    if not response_text or "NO_SIGNALS_FOUND" in response_text:
+    if not response_text:
         return signals
+
     json_pattern = re.compile(r'\{[^{}]*"signal_type"[^{}]*\}', re.DOTALL)
-    for match in json_pattern.findall(response_text):
+    matches      = json_pattern.findall(response_text)
+
+    # Honour NO_SIGNALS_FOUND only when the agent emitted no signal JSON.
+    # This used to be a bare substring test run BEFORE the regex, so a
+    # response like "NO_SIGNALS_FOUND for the broad search, however: {...}"
+    # silently threw away the real signals that followed it.
+    if not matches:
+        if "NO_SIGNALS_FOUND" not in response_text:
+            logger.warning(
+                f"{agent_name} | Final response contained no signal JSON and no "
+                "NO_SIGNALS_FOUND marker — signals may have been lost"
+            )
+        return signals
+
+    for match in matches:
         try:
             data = json.loads(match)
             signals.append({
@@ -209,6 +255,6 @@ async def _execute_tool(tool_call: dict, available_tools: list) -> str:
     if tool_func is None:
         return f"Error: Tool '{tool_name}' not found."
     try:
-        return str(tool_func.invoke(tool_args))
+        return str(await tool_func.ainvoke(tool_args))
     except Exception as e:
         return f"Error executing '{tool_name}': {str(e)}"

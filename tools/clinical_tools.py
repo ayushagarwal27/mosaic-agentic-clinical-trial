@@ -1,5 +1,4 @@
 import json
-import asyncio
 from langchain_core.tools import tool
 from ingestion.clinical_trials_client import ClinicalTrialsClient
 from ingestion.document_parser import DocumentParser
@@ -11,27 +10,8 @@ logger = setup_logging(__name__)
 _parser = DocumentParser()
 
 
-def _run_async(coroutine):
-    """
-    Runs an async coroutine synchronously.
-
-    LangGraph tools are called synchronously by the framework,
-    but our API clients use async/await. This function bridges
-    that gap by running the coroutine on the event loop.
-
-    Args:
-        coroutine: An unawaited async function call.
-
-    Returns:
-        The result of the async function, returned synchronously.
-    """
-
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(coroutine)
-
-
 @tool
-def fetch_study_details(nct_id: str) -> str:
+async def fetch_study_details(nct_id: str) -> str:
     """
     Fetch the complete, LIVE record for one specific clinical trial
     directly from ClinicalTrials.gov API.
@@ -58,13 +38,9 @@ def fetch_study_details(nct_id: str) -> str:
         f"Tool called: fetch_study_details | nct_id={nct_id}"
     )
 
-    async def _fetch():
+    try:
         async with ClinicalTrialsClient() as client:
             raw_study = await client.fetch_study(nct_id=nct_id)
-            return raw_study
-
-    try:
-        raw_study = _run_async(_fetch())
 
         if raw_study is None:
             return json.dumps({
@@ -107,7 +83,7 @@ def fetch_study_details(nct_id: str) -> str:
 
 
 @tool
-def search_studies_by_condition(
+async def search_studies_by_condition(
     condition: str,
     max_results: int = 10,
     status_filter: str = "COMPLETED",
@@ -146,18 +122,13 @@ def search_studies_by_condition(
         f"condition={condition} | max_results={max_results}"
     )
 
-    async def _search():
+    try:
         async with ClinicalTrialsClient() as client:
             raw_studies = await client.search_studies(
                 condition=condition,
                 status=[status_filter] if status_filter else None,
                 max_results=min(max_results, 50),
             )
-
-            return raw_studies
-
-    try:
-        raw_studies = _run_async(_search())
 
         if not raw_studies:
             return json.dumps({
@@ -199,7 +170,7 @@ def search_studies_by_condition(
 
 
 @tool
-def check_results_posted(nct_id: str) -> str:
+async def check_results_posted(nct_id: str) -> str:
     """
     Check if a specific clinical trial has posted results — RIGHT NOW.
 
@@ -228,13 +199,9 @@ def check_results_posted(nct_id: str) -> str:
         f"Tool called: check_results_posted | nct_id={nct_id}"
     )
 
-    async def _check():
+    try:
         async with ClinicalTrialsClient() as client:
             raw_study = await client.fetch_study(nct_id=nct_id)
-            return raw_study
-
-    try:
-        raw_study = _run_async(_check())
 
         if raw_study is None:
             return json.dumps({
@@ -306,7 +273,7 @@ def check_results_posted(nct_id: str) -> str:
 
 
 @tool
-def get_study_amendments(nct_id: str) -> str:
+async def get_study_amendments(nct_id: str) -> str:
     """
     Fetch the protocol amendment history for a specific clinical trial.
 
@@ -335,13 +302,9 @@ def get_study_amendments(nct_id: str) -> str:
         f"Tool called: get_study_amendments | nct_id={nct_id}"
     )
 
-    async def _fetch():
+    try:
         async with ClinicalTrialsClient() as client:
             raw_study = await client.fetch_study(nct_id=nct_id)
-            return raw_study
-
-    try:
-        raw_study = _run_async(_fetch())
 
         if raw_study is None:
             return json.dumps({

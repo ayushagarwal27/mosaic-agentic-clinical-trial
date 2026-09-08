@@ -14,34 +14,41 @@ _vector_store   = VectorStore()
 _episodic_store = EpisodicStore()
 _semantic_store = SemanticStore()
 
+# Guards _ensure_vector_store below. The six specialist agents run in
+# parallel, so several tools reach that function at the same instant.
+_vector_store_lock = asyncio.Lock()
 
-def _run_async(coroutine):
+
+async def _ensure_vector_store() -> None:
     """
-    Runs an async coroutine synchronously.
+    Lazily connects the shared VectorStore singleton.
 
-    WHAT IS A COROUTINE?
-    When you call an async function WITHOUT await, Python gives you
-    back a "coroutine" — a suspended function that has not run yet.
-    Example:
-      result = store.search(...)      → coroutine (not run yet)
-      result = await store.search(...)→ actual result (ran and waited)
+    Unlike EpisodicStore/SemanticStore, VectorStore does not
+    self-heal its connection pool on every call — it requires an
+    explicit init() (see processing/vector_store.py). Since this
+    module keeps one VectorStore instance alive for the whole
+    process, we only need to do that once.
 
-    This helper takes that suspended coroutine and runs it to completion
-    using the event loop — giving us the actual result synchronously.
-
-    Args:
-        coroutine: An unawaited async function call.
-
-    Returns:
-        Whatever the async function would have returned with await.
+    WHY THE LOCK:
+    A bare "if not initialised: await init()" is check-then-act, and
+    the await inside init() yields control. With six agents running
+    concurrently, four tool calls all passed the check before any of
+    them finished connecting — Postgres saw four pools created, and
+    three of them were orphaned by the final assignment to _pool:
+    unreachable, never closed, holding connections open against Neon.
+    The lock makes the first caller connect while the rest wait, and
+    the second check inside it stops them re-connecting afterwards.
     """
+    if _vector_store.is_initialised:
+        return
 
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(coroutine)
+    async with _vector_store_lock:
+        if not _vector_store.is_initialised:
+            await _vector_store.init()
 
 
 @tool
-def search_studies_by_meaning(
+async def search_studies_by_meaning(
     query: str,
     top_k: int = 5,
     source_filter: str = "study",
@@ -75,13 +82,12 @@ def search_studies_by_meaning(
     )
  
     try:
-        query_embedding = _run_async(_embedder.embed_text(query))
-        results = _run_async(
-            _vector_store.search(
-                query_embedding=query_embedding,
-                top_k=top_k,
-                source_filter=source_filter,
-            )
+        await _ensure_vector_store()
+        query_embedding = await _embedder.embed_text(query)
+        results = await _vector_store.search(
+            query_embedding=query_embedding,
+            top_k=top_k,
+            source_filter=source_filter,
         )
 
         if not results:
@@ -103,7 +109,7 @@ def search_studies_by_meaning(
 
 
 @tool
-def search_past_episodes(
+async def search_past_episodes(
     query: str,
     agent_name: str,
     top_k: int = 3,
@@ -137,12 +143,10 @@ def search_past_episodes(
     )
 
     try:
-        episodes = _run_async(
-            _episodic_store.search_episodes(
-                query=query,
-                agent_name=agent_name,
-                top_k=top_k,
-            )
+        episodes = await _episodic_store.search_episodes(
+            query=query,
+            agent_name=agent_name,
+            top_k=top_k,
         )
 
         if not episodes:
@@ -165,7 +169,7 @@ def search_past_episodes(
 
 
 @tool
-def save_episode(
+async def save_episode(
     agent_name: str,
     content: str,
     nct_id: str = "",
@@ -204,13 +208,11 @@ def save_episode(
     )
 
     try:
-        episode_id = _run_async(
-            _episodic_store.save_episode(
-                agent_name=agent_name,
-                content=content,
-                nct_id=nct_id if nct_id else None,
-                outcome=outcome,
-            )
+        episode_id = await _episodic_store.save_episode(
+            agent_name=agent_name,
+            content=content,
+            nct_id=nct_id if nct_id else None,
+            outcome=outcome,
         )
 
         return json.dumps({
@@ -226,7 +228,7 @@ def save_episode(
 
 
 @tool
-def get_sponsor_profile(sponsor_name: str) -> str:
+async def get_sponsor_profile(sponsor_name: str) -> str:
     """
     Retrieve everything MOSAIC knows about a specific research sponsor.
 
@@ -253,9 +255,7 @@ def get_sponsor_profile(sponsor_name: str) -> str:
     )
 
     try:
-        profile = _run_async(
-            _semantic_store.get_sponsor_profile(sponsor=sponsor_name)
-        )
+        profile = await _semantic_store.get_sponsor_profile(sponsor=sponsor_name)
 
         if profile is None:
             return json.dumps({
@@ -277,7 +277,7 @@ def get_sponsor_profile(sponsor_name: str) -> str:
 
 
 @tool
-def update_sponsor_profile(
+async def update_sponsor_profile(
     sponsor_name:       str,
     results_posted:     bool = False,
     had_broken_promise: bool = False,
@@ -313,13 +313,11 @@ def update_sponsor_profile(
     )
 
     try:
-        _run_async(
-            _semantic_store.update_sponsor_knowledge(
-                sponsor=sponsor_name,
-                results_posted=results_posted,
-                had_broken_promise=had_broken_promise,
-                delay_days=delay_days,
-            )
+        await _semantic_store.update_sponsor_knowledge(
+            sponsor=sponsor_name,
+            results_posted=results_posted,
+            had_broken_promise=had_broken_promise,
+            delay_days=delay_days,
         )
 
         return json.dumps({
@@ -337,7 +335,7 @@ def update_sponsor_profile(
 
 
 @tool
-def get_low_credibility_sponsors(
+async def get_low_credibility_sponsors(
     threshold:   float = 0.6,
     min_studies: int   = 3,
 ) -> str:
@@ -364,11 +362,9 @@ def get_low_credibility_sponsors(
     )
 
     try:
-        sponsors = _run_async(
-            _semantic_store.get_low_credibility_sponsors(
-                threshold=threshold,
-                min_studies=min_studies,
-            )
+        sponsors = await _semantic_store.get_low_credibility_sponsors(
+            threshold=threshold,
+            min_studies=min_studies,
         )
 
         if not sponsors:
@@ -391,7 +387,7 @@ def get_low_credibility_sponsors(
 
 
 @tool
-def search_study_chunks_by_nct_id(
+async def search_study_chunks_by_nct_id(
     nct_id: str,
     query:  str = "",
 ) -> str:
@@ -420,19 +416,16 @@ def search_study_chunks_by_nct_id(
     )
 
     try:
+        await _ensure_vector_store()
         if query:
-            query_embedding = _run_async(_embedder.embed_text(query))
-            results = _run_async(
-                _vector_store.search(
-                    query_embedding=query_embedding,
-                    top_k=5,
-                    nct_id_filter=nct_id,
-                )
+            query_embedding = await _embedder.embed_text(query)
+            results = await _vector_store.search(
+                query_embedding=query_embedding,
+                top_k=5,
+                nct_id_filter=nct_id,
             )
         else:
-            results = _run_async(
-                _vector_store.get_chunks_for_study(nct_id=nct_id)
-            )
+            results = await _vector_store.get_chunks_for_study(nct_id=nct_id)
 
         if not results:
             return json.dumps({
@@ -457,7 +450,7 @@ def search_study_chunks_by_nct_id(
 
 
 @tool
-def search_papers_by_meaning(
+async def search_papers_by_meaning(
     query: str,
     top_k: int = 5,
 ) -> str:
@@ -489,13 +482,12 @@ def search_papers_by_meaning(
     )
 
     try:
-        query_embedding = _run_async(_embedder.embed_text(query))
-        results = _run_async(
-            _vector_store.search(
-                query_embedding=query_embedding,
-                top_k=top_k,
-                source_filter="paper",
-            )
+        await _ensure_vector_store()
+        query_embedding = await _embedder.embed_text(query)
+        results = await _vector_store.search(
+            query_embedding=query_embedding,
+            top_k=top_k,
+            source_filter="paper",
         )
 
         if not results:

@@ -223,6 +223,15 @@ class ProceduralStore:
         async with self.pool.acquire() as conn:
             for agent_name, rules in DEFAULT_RULES.items():
                 for rule_text in rules:
+                    # WHY NOT "ON CONFLICT DO NOTHING":
+                    # That clause needs something to conflict WITH. There is
+                    # no unique index on (agent_name, rule_text), so nothing
+                    # ever conflicted and every startup inserted a fresh copy
+                    # of all 24 default rules. Agents were loading 128 rules
+                    # apiece — the same 4 repeated 32 times — which bloated
+                    # every system prompt and grew on each restart.
+                    # WHERE NOT EXISTS makes the insert genuinely idempotent
+                    # without requiring a schema migration.
                     await conn.execute(
                         """
                         INSERT INTO procedures (
@@ -231,8 +240,13 @@ class ProceduralStore:
                             rule_type,
                             source
                         )
-                        VALUES ($1, $2, $3, $4)
-                        ON CONFLICT DO NOTHING
+                        SELECT $1, $2, $3, $4
+                        WHERE NOT EXISTS (
+                            SELECT 1
+                            FROM procedures
+                            WHERE agent_name = $1
+                              AND rule_text  = $2
+                        )
                         """,
                         agent_name,
                         rule_text,
